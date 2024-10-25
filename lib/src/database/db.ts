@@ -1,38 +1,18 @@
 import { Pool } from 'pg';
-import dotenv from 'dotenv';
+import { loadConfig } from '../config';
 
-dotenv.config();
+const { DATABASE_URL } = loadConfig();
+let pool: Pool;
 
-let pool: Pool | undefined;
-
-export const initDB = () => {
+export const initDB = (): void => {
   if (!pool) {
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-    });
-
-    pool.on('connect', () => {
-      console.log('Connected to the database');
-    });
-
-    pool.on('error', (err) => {
-      console.error('Unexpected error on idle client', err);
-      process.exit(-1);
-    });
+    pool = new Pool({ connectionString: DATABASE_URL });
+    pool.on('connect', () => console.log('Database connected.'));
+    pool.on('error', (err: Error) => console.error('Database error:', err));
   }
 };
 
-export const query = async (text: string, params?: any[]) => {
-  if (!pool) {
-    throw new Error('Database connection has not been initialized.');
-  }
-
-  try {
-    const result = await pool.query(text, params);
-    return result;
-  } catch (error) {
-    console.error('Database query error:', error);
-    throw error;
-  }
+export const query = async (text: string, params?: any[]): Promise<any> => {
+  if (!pool) throw new Error('Database connection not initialized.');
+  return await pool.query(text, params);
 };
-

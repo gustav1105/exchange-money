@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "80:80" # Expose the app on port 80
+    environment:
+      - API_KEY=${API_KEY} # Optional: environment variables if needed
+    volumes:
+      - ./app:/exchange-money/app
+      - ./lib:/exchange-money/lib

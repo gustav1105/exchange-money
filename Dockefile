@@ -1,0 +1,30 @@
+# Stage 1: Build Angular app and library
+FROM node:18 AS builder
+
+# Set the working directory
+WORKDIR /exchange-money
+
+# Copy and install dependencies for both app and lib
+COPY app/package*.json ./app/
+COPY lib/package*.json ./lib/
+RUN cd app && npm install && cd ../lib && npm install
+
+# Copy the app and lib source code
+COPY app /exchange-money/app
+COPY lib /exchange-money/lib
+
+# Build the Angular app, which should include the library functions
+RUN cd app && npm run build
+
+# Stage 2: Production environment using NGINX
+FROM nginx:stable-alpine
+
+# Copy the built Angular app to the NGINX html directory
+COPY --from=builder /exchange-money/app/dist/app /usr/share/nginx/html
+
+# Expose port 80 for the server
+EXPOSE 80
+
+# Start NGINX
+CMD ["nginx", "-g", "daemon off;"]
+

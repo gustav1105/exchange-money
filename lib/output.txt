@@ -1,0 +1,315 @@
+export interface ForexData {
+  symbol: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  change: number;
+  changePercent: number;
+  timestamp: number;
+}
+import axios from 'axios';
+import { ForexData } from './types';
+import { loadConfig } from '../config';
+
+const { FCSAPI_KEY, FCSAPI_URL } = loadConfig();
+
+export const getForexData = async (symbols: string[]): Promise<ForexData[]> => {
+  if (!FCSAPI_KEY) throw new Error('FCSAPI_KEY is not defined in the environment variables.');
+  const symbolString = symbols.join(',');
+
+  console.log(`Requesting data for symbols: ${symbolString}`);
+  const response = await axios.get(FCSAPI_URL, {
+    params: { access_key: FCSAPI_KEY, symbol: symbolString }
+  });
+
+  if (response.status !== 200 || !response.data.response) {
+    throw new Error(`Failed API request with status ${response.status}`);
+  }
+
+  return response.data.response.map((item: any) => ({
+    symbol: item.s,
+    open: parseFloat(item.o),
+    high: parseFloat(item.h),
+    low: parseFloat(item.l),
+    close: parseFloat(item.c),
+    change: parseFloat(item.ch),
+    changePercent: parseFloat(item.cp),
+    timestamp: parseInt(item.t, 10)
+  }));
+};
+export const getTableNameForToday = (): string => {
+  const today = new Date();
+  return `exchange_${today.getFullYear()}_${String(today.getMonth() + 1).padStart(2, '0')}_${String(today.getDate()).padStart(2, '0')}`;
+};
+
+export const calculateTimeUntilMidnight = (currentTime: Date): number => {
+  const midnight = new Date(currentTime);
+  midnight.setHours(24, 0, 0, 0);
+  return midnight.getTime() - currentTime.getTime();
+};
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+export const loadConfig = () => ({
+  FCSAPI_KEY: process.env['FCSAPI_KEY'],
+  FCSAPI_URL: 'https://fcsapi.com/api-v3/forex/latest',
+  DATABASE_URL: process.env['DATABASE_URL']
+});
+export { initDB, query } from './database/db';
+export { getForexData } from './api/forexService';
+export { getSupportedCurrencies, addCurrency, removeCurrency } from './currencies';
+export { getTableNameForToday } from './utils/dateUtils';
+export { startScheduler } from './scheduler/taskScheduler';
+export { getExchangeRate, fetchTodayData, fetchAvailableDates } from  './database/dataQuery';
+// src/scheduler/tasks.ts
+
+import { query } from '../database/db';
+import { getSupportedCurrencies } from '../currencies';
+import { getForexData } from '../api/forexService';
+import { getTableNameForToday } from '../utils/dateUtils';
+import { createTableForTodayIfNotExists, insertDataIntoTable } from '../database/tableManagement';
+
+export const runTask = async () => {
+  console.log('Running scheduled task...');
+  
+  try {
+    const result = await query('SELECT NOW()');
+    console.log('Task ran at:', result.rows[0].now);
+    
+    // `currencies` is an array of strings
+    const currencies = getSupportedCurrencies();
+    
+    // Pass the currencies directly as symbols to the `getForexData` function
+    const forexData = await getForexData(currencies);
+
+    const tableName = getTableNameForToday();
+    await createTableForTodayIfNotExists(tableName);
+    
+    for (let i = 0; i < currencies.length; i++) {
+      const symbol = currencies[i];  // No `.symbol` since `currencies[i]` is a string
+      const fD = forexData[i];
+
+      console.log(fD);
+      await insertDataIntoTable(tableName, symbol, fD);
+    }
+    
+  } catch (error) {
+    console.error('Error running task:', error);
+  }
+};
+
+import { runTask } from './tasks';
+import { calculateTimeUntilMidnight } from '../utils/dateUtils';
+
+export const startScheduler = async (): Promise<void> => {
+  const timeUntilMidnight = calculateTimeUntilMidnight(new Date());
+  setTimeout(() => {
+    runTask();
+    setInterval(runTask, 24 * 60 * 60 * 1000);
+  }, timeUntilMidnight);
+};
+
+import { query } from './db';
+import { getTableNameForToday } from '../utils/dateUtils';
+
+export const fetchAvailableDates = async (): Promise<string[]> => {
+  try {
+    const result = await query(`
+      SELECT table_name 
+      FROM information_schema.tables
+      WHERE table_name LIKE 'exchange_%'
+    `);
+
+    const dates = result.rows
+      .map((row: { table_name: string }) => row.table_name)
+      .filter((tableName: string) => /^exchange_\d{4}_\d{2}_\d{2}$/.test(tableName))
+      .map((tableName: string) => tableName.replace('exchange_', '').replace(/_/g, '-'));
+
+    return dates;
+  } catch (error) {
+    console.error('Error fetching available dates:', error);
+    throw error;
+  }
+};
+
+export const fetchTodayData = async (): Promise<any[]> => {
+  const tableName = getTableNameForToday();
+  
+  try {
+    const queryText = `
+      SELECT symbol AS s, open AS o, high AS h, low AS l, close AS c, 
+             change AS ch, change_percent AS cp, timestamp AS t, 
+             last_update AS tm
+      FROM ${tableName}
+    `;
+
+    const result = await query(queryText);
+    
+    return result.rows;
+  } catch (error) {
+    console.error(`Error fetching data for today from table ${tableName}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Fetches the exchange rate for a specific date and currency pair.
+ * 
+ * @param {string} date - The date in "YYYY-MM-DD" format.
+ * @param {string} baseCurrency - The base currency (e.g., "USD").
+ * @param {string} counterCurrency - The counter currency (e.g., "EUR").
+ * @param {number} amount - The amount in base currency to convert.
+ * @returns {Promise<{ rate: number; convertedAmount: number }>} Conversion result and rate.
+ */
+export const getExchangeRate = async (
+  date: string, 
+  baseCurrency: string, 
+  counterCurrency: string, 
+  amount: number
+): Promise<{ rate: number; convertedAmount: number }> => {
+  const tableName = `exchange_${date.replace(/-/g, '_')}`;
+  const queryText = `
+    SELECT close 
+    FROM ${tableName}
+    WHERE symbol = $1
+  `;
+
+  try {
+    const result = await query(queryText, [`${baseCurrency}/${counterCurrency}`]);
+
+    if (result.rows.length === 0) {
+      throw new Error(`No data found for ${baseCurrency}/${counterCurrency} on ${date}`);
+    }
+
+    const rate = parseFloat(result.rows[0].close);
+    return {
+      rate: rate,
+      convertedAmount: rate * amount
+    };
+  } catch (error) {
+    console.error(`Error fetching exchange rate for ${baseCurrency}/${counterCurrency} on ${date}:`, error);
+    throw error;
+  }
+};
+
+import { Pool } from 'pg';
+import { loadConfig } from '../config';
+
+const { DATABASE_URL } = loadConfig();
+let pool: Pool;
+
+export const initDB = (): void => {
+  if (!pool) {
+    pool = new Pool({ connectionString: DATABASE_URL });
+    pool.on('connect', () => console.log('Database connected.'));
+    pool.on('error', (err: Error) => console.error('Database error:', err));
+  }
+};
+
+export const query = async (text: string, params?: any[]): Promise<any> => {
+  if (!pool) throw new Error('Database connection not initialized.');
+  return await pool.query(text, params);
+};
+import { query } from './db';
+
+export const createTableForTodayIfNotExists = async (tableName: string): Promise<void> => {
+  const createTableQuery = `
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+      id SERIAL PRIMARY KEY,
+      symbol VARCHAR(10) NOT NULL,
+      open DECIMAL(10, 6),
+      high DECIMAL(10, 6),
+      low DECIMAL(10, 6),
+      close DECIMAL(10, 6),
+      change DECIMAL(10, 6),
+      change_percent DECIMAL(5, 2),
+      timestamp BIGINT,
+      last_update TIMESTAMP DEFAULT NOW()
+    );
+  `;
+  await query(createTableQuery);
+};
+
+export const insertDataIntoTable = async (tableName: string, symbol: string, data: any): Promise<void> => {
+  const insertQuery = `
+    INSERT INTO ${tableName} (symbol, open, high, low, close, change, change_percent, timestamp, last_update)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+  `;
+  await query(insertQuery, [
+    symbol, data.open, data.high, data.low, data.close, data.change, data.changePercent, data.timestamp
+  ]);
+};
+// src/currencies.ts
+
+// List of unique base currencies
+const currencies: string[] = [
+  'GBP', 'USD', 'EUR', 'JPY', 'AUD', 'CAD', 'NZD', 'ZAR'
+];
+
+// Interface for currency pair data
+export interface CurrencyPair {
+  base: string;
+  counter: string;
+  symbol: string;
+}
+
+/**
+ * Generates all supported currency pairs in both directions (e.g., "USD/EUR" and "EUR/USD").
+ * 
+ * @returns {CurrencyPair[]} Array of currency pair objects.
+ */
+export const getSupportedCurrencyPairs = (): CurrencyPair[] => {
+  const pairs: CurrencyPair[] = [];
+
+  for (let i = 0; i < currencies.length; i++) {
+    for (let j = i + 1; j < currencies.length; j++) {
+      pairs.push({
+        base: currencies[i],
+        counter: currencies[j],
+        symbol: `${currencies[i]}/${currencies[j]}`
+      });
+      pairs.push({
+        base: currencies[j],
+        counter: currencies[i],
+        symbol: `${currencies[j]}/${currencies[i]}`
+      });
+    }
+  }
+
+  return pairs;
+};
+
+/**
+ * Adds a new currency to the list if it does not already exist.
+ * 
+ * @param {string} currency - The currency code to add.
+ */
+export const addCurrency = (currency: string): void => {
+  if (!currencies.includes(currency)) {
+    currencies.push(currency);
+  }
+};
+
+/**
+ * Removes a currency from the list and automatically updates currency pairs.
+ * 
+ * @param {string} currency - The currency code to remove.
+ */
+export const removeCurrency = (currency: string): void => {
+  const index = currencies.indexOf(currency);
+  if (index > -1) {
+    currencies.splice(index, 1);
+  }
+};
+
+/**
+ * Retrieves the list of unique base currencies.
+ * 
+ * @returns {string[]} List of supported base currencies.
+ */
+export const getSupportedCurrencies = (): string[] => {
+  return [...currencies];
+};
+
