@@ -1,3 +1,10 @@
+import { initDB, query } from './database/db';  // Ensure the path aligns with your project structure
+import { getSupportedCurrencies } from './interface/currencies';
+import { getForexData } from './api/fcsapi';
+import { getTableNameForToday } from './interface/dates';
+import { createTableForTodayIfNotExists, insertDataIntoTable } from './database/mutate';
+import { fetchTodayData } from './database/query';
+
 const runTask = async () => {
   console.log('Running scheduled task...');
   

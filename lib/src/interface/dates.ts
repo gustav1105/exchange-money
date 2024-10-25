@@ -1,6 +1,13 @@
-import { query } from './db';
+import { query } from '../database/db';
 
-// Function to fetch all available dates with tables in the format 'exchange_yyyy_mm_dd'
+export const getTableNameForToday = (): string => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `exchange_${year}_${month}_${day}`;
+};
+
 export const fetchAvailableDates = async (): Promise<string[]> => {
   try {
     // Query for tables that match the 'exchange_' date format pattern

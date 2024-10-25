@@ -11,7 +11,7 @@ const currencies: string[] = [
 ];
 
 // Function to generate all supported currency pairs
-export const getSupportedCurrencyPairs = (): string[] => {
+export const getSupportedCurrencies = (): string[] => {
   const pairs: string[] = [];
 
   for (let i = 0; i < currencies.length; i++) {

@@ -1,6 +1,6 @@
 import { query } from './db';
 
-const getTableNameForToday = (): string => {
+export const getTableNameForToday = (): string => {
   const today = new Date();
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are 0-based
@@ -8,7 +8,7 @@ const getTableNameForToday = (): string => {
   return `exchange_${year}_${month}_${day}`;
 };
 
-const fetchTodayData = async () => {
+export const fetchTodayData = async () => {
   const tableName = getTableNameForToday(); // Get today's table name
   try {
     const queryText = `SELECT symbol AS s, open AS o, high AS h, low AS l, close AS c, change AS ch, change_percent AS cp, timestamp AS t, last_update AS tm FROM ${tableName}`;

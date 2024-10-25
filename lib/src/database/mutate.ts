@@ -1,4 +1,6 @@
-const createTableForTodayIfNotExists = async (tableName: string) => {
+import { query } from './db'
+
+export const createTableForTodayIfNotExists = async (tableName: string) => {
   const createTableQuery = `
     CREATE TABLE IF NOT EXISTS ${tableName} (
       id SERIAL PRIMARY KEY,
@@ -17,7 +19,7 @@ const createTableForTodayIfNotExists = async (tableName: string) => {
   console.log(`Table ${tableName} created or already exists`);
 };
 
-const insertDataIntoTable = async (tableName: string, symbol: string, data: any) => {
+export const insertDataIntoTable = async (tableName: string, symbol: string, data: any) => {
   const changePercent = parseFloat(data.cp.replace('%', ''));
   const timestamp = parseInt(data.t);  // Assuming 't' is in seconds or milliseconds
 

@@ -1,3 +1,5 @@
+import { query } from '../database/db';
+
 export const exchangeRate = async (date: string, baseCurrency: string, counterCurrency: string, amount: number) => {
   const tableName = `exchange_${date.replace(/-/g, '_')}`;
   const queryText = `
