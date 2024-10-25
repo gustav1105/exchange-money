@@ -4,6 +4,13 @@ import { getForexData } from './api/fcsapi';
 import { getTableNameForToday } from './interface/dates';
 import { createTableForTodayIfNotExists, insertDataIntoTable } from './database/mutate';
 import { fetchTodayData } from './database/query';
+export * from './interface/dates';
+export * from './interface/exchangeRates';
+export * from './interface/currencies';
+export { initDB, query } from './database/db';
+export { getForexData } from './api/fcsapi';
+export { createTableForTodayIfNotExists, insertDataIntoTable } from './database/mutate';
+export { fetchTodayData } from './database/query';
 
 const runTask = async () => {
   console.log('Running scheduled task...');
@@ -90,3 +97,5 @@ const initialize = async () => {
     console.error('Error initializing app:', error);
   }
 };
+
+
